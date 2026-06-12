@@ -14,6 +14,7 @@ export default async function PostsPage() {
   // ✅ Server Component → FastAPI 직접 호출 (Route Handler 경유 금지)
   const res = await fetch(`${process.env.FASTAPI_URL}/posts`, {
     next: { tags: ["posts-list"] },
+    cache: "no-store",
   });
 
   if (!res.ok) {
