@@ -27,8 +27,6 @@ export default function SearchPage() {
   //   흐름: 브라우저 → FastAPI (NEXT_PUBLIC_FASTAPI_URL/posts) 직접 호출
   //   TODO: 아래 useEffect 블록을 완성해보세요.완성 후 Route Handler 방식(아래)은 주석 처리하세요.
   // ===========================================================================
-<<<<<<< HEAD
-  
     // useEffect(() => {
     //   setLoading(true);
     //   setError(null);
@@ -56,31 +54,6 @@ export default function SearchPage() {
   
     // }, []);
   
-=======
-
-  // useEffect(() => {
-  //   setLoading(true);
-  //   setError(null);
-
-  //   fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/posts`)
-  //     .then((response) => {
-  //       if (!response.ok) throw new Error("데이터를 불러오는데 실패했습니다.");
-  //       return response.json();
-  //     })
-  //     .then((data) => {
-  //       setResults(data);
-  //     })
-  //     .catch((error) => {
-  //       setError(error.message);
-  //     })
-  //     .finally(() => {
-  //       setLoading(false);
-  //     });
-
-  //   // TODO: process.env.NEXT_PUBLIC_FASTAPI_URL 을 사용해 /posts 를 fetch 하세요.
-  //   //       성공 시 setResults, 실패 시 setError, 완료 시 setLoading(false) 처리.
-  // }, []);
->>>>>>> 91ecd3f1e1624cea18f1bd34270dbe830aac3bcd
 
   // ===========================================================================
   // [실습 1] Route Handler 방식
@@ -91,7 +64,6 @@ export default function SearchPage() {
     async function fetchData() {
       setLoading(true);
       setError(null);
-<<<<<<< HEAD
       try{
         const response = await axios.get(`${BASE_PATH}/api/search`);
         setResults(response.data);
@@ -106,38 +78,14 @@ export default function SearchPage() {
       }
     }
       fetchData();
-
-
-=======
->>>>>>> 91ecd3f1e1624cea18f1bd34270dbe830aac3bcd
-
-      try {
-        const response = await axios.get(`${BASE_PATH}/api/search`);
-        setResults(response.data);
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          setError(error.response?.data?.detail ?? "알 수 없는 오류");
-        } else {
-          setError(error instanceof Error ? error.message : "알 수 없는 오류");
-        }
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
-  }, []);
+      }, []);
 
   // ===========================================================================
   // TODO: results 배열을 query 로 필터링하는 로직을 구현해보세요.
   //       post.title 또는 post.content 에 query 가 포함된 게시글만 남기세요.
   // ===========================================================================
-<<<<<<< HEAD
   const filtered: Post[] = results.filter((post) => 
     post.title.includes(query) || post.content.includes(query)
-=======
-  const filtered: Post[] = results.filter(
-    (post) => post.title.includes(query) || post.content.includes(query),
->>>>>>> 91ecd3f1e1624cea18f1bd34270dbe830aac3bcd
   );
 
   return (
