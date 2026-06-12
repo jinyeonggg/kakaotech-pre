@@ -1,0 +1,175 @@
+# main.py — FastAPI + SQLite Blog API
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import create_engine, Integer, String, Text, DateTime, select, or_
+from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, sessionmaker, Session
+from pydantic import BaseModel, field_validator
+from datetime import datetime, timezone
+from typing import Optional
+import os
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# ─── DB 설정 ────────────────────────────────────────────
+DATABASE_URL = "sqlite:///./blog.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# ─── 모델 (DB 테이블) ────────────────────────────────────
+class Post(Base):
+    __tablename__ = "posts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+Base.metadata.create_all(bind=engine)
+
+
+# ─── Pydantic 스키마 ────────────────────────────────────
+class PostCreate(BaseModel):
+    title: str
+    content: str
+
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("제목은 비워둘 수 없습니다")
+        return v.strip()
+
+
+class PostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
+class PostResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+# ─── FastAPI 앱 & CORS ──────────────────────────────────
+app = FastAPI(title="Blog API")
+
+# [실습 1] Direct Fetch 방식에서 CORS 설정이 필요한 이유
+#   브라우저(http://localhost:3000)가 다른 출처의 FastAPI(http://localhost:8000)를
+#   직접 호출할 때, 브라우저의 동일 출처 정책(SOP)에 의해 요청이 차단됩니다.
+#   → allow_origins 에 Next.js 주소를 등록해 허용합니다.
+#
+# [실습 1] Route Handler 방식에서는 CORS 불필요
+#   브라우저 → Next.js Route Handler(같은 출처) → FastAPI 순서로 호출되며,
+#   FastAPI 를 호출하는 주체가 브라우저가 아닌 서버이므로 CORS 제약이 없습니다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # [실습 1] Direct Fetch 허용 출처
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ─── DB 세션 의존성 ──────────────────────────────────────
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ─── GET /posts ──────────────────────────────────────────
+@app.get("/posts", response_model=list[PostResponse])
+def get_posts(db: Session = Depends(get_db)):
+    # [실습 3] TODO: 옵셔널 쿼리 파라미터 q 를 추가하고, 서버사이드 필터링을 구현해보세요.
+    #
+    #   1. 함수 인자에 q: Optional[str] = None 을 추가하세요.
+    #      (fastapi.Query 를 사용해 description 을 추가하면 더 좋습니다)
+    #
+    #   2. q 가 있을 때는 SQLAlchemy or_() 를 활용해 title 또는 content 에
+    #      검색어가 포함된 게시글만 반환하세요.
+    #      → or_() 는 이미 임포트되어 있습니다
+    #      → Post.title.contains(q), Post.content.contains(q)
+    #
+    #   3. q 가 없을 때는 전체 목록을 반환하세요.
+    return db.execute(select(Post)).scalars().all()
+
+
+# ─── GET /posts/{post_id} ────────────────────────────────
+@app.get("/posts/{post_id}", response_model=PostResponse)
+def get_post(post_id: int, db: Session = Depends(get_db)):
+    # ✏️ Q1. Post 테이블에서 id가 post_id와 일치하는 데이터를 찾는 쿼리문(stmt)을 작성하고 실행하세요.
+    # 힌트: select(Post).where(조건)와 db.scalar(stmt)를 조합합니다.
+    stmt = select(Post).where(Post.id == post_id)
+    post = db.scalar(stmt)
+
+    # ✏️ Q2. 만약 일치하는 게시글(post)이 없다면, 사용자에게 404 에러를 반환하세요.
+    # 힌트: raise HTTPException(status_code=404, detail="...")을 사용합니다.
+    if not post:
+        raise HTTPException(status_code=404,detail="게시글을 찾을 수 없습니다.")
+    post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다")
+    return post
+
+
+# ─── POST /posts ─────────────────────────────────────────
+@app.post("/posts", response_model=PostResponse, status_code=201)
+def create_post(data: PostCreate, db: Session = Depends(get_db)):
+    try:
+        post = Post(title=data.title, content=data.content)
+        # ✏️ Q1. 데이터를 세션에 임시 추가하고, 실제 DB에 반영한 뒤 최신 정보를 객체에 동기화하세요.
+        db.add(post)
+        db.commit()
+        db.refresh(post)
+        return post
+    except Exception as e:
+        # ✏️ Q2. 에러가 발생했을 때 DB를 원래 상태로 안전하게 되돌리는 코드를 작성하세요.
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"게시글 생성 실패: {str(e)}")
+
+
+# ─── PUT /posts/{post_id} ────────────────────────────────
+@app.put("/posts/{post_id}", response_model=PostResponse)
+def update_post(post_id: int, data: PostUpdate, db: Session = Depends(get_db)):
+    post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다")
+    try:
+        if data.title is not None:
+            post.title = data.title
+        if data.content is not None:
+            post.content = data.content
+
+        # ✏️ Q1. 변경된 사항을 데이터베이스에 반영하고 최신 정보로 동기화하세요.
+        db.commit()
+        db.refresh(post)
+        return
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"게시글 수정 실패: {str(e)}")
+
+
+# ─── DELETE /posts/{post_id} ─────────────────────────────
+@app.delete("/posts/{post_id}", status_code=204)
+def delete_post(post_id: int, db: Session = Depends(get_db)):
+    post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다")
+    try:
+        # ✏️ Q1. 대상을 삭제 목록에 올리고 데이터베이스에 최종 기록하세요.
+        db.delete(post)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"게시글 삭제 실패: {str(e)}")
+    # 204 No Content: 삭제 성공 시 응답 바디 없음
